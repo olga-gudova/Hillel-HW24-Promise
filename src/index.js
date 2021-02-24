@@ -1,78 +1,108 @@
-const urls = [
-    'https://swapi.dev/api/starships/',
-    'https://swapi.dev/api/films/',
-];
+class StarWars {
+    STARSHIPS_URL = 'https://swapi.dev/api/starships/';
 
-const unPage = async (url) => {
-    const resultArray = [];
+    starships = [];
+    next = this.STARSHIPS_URL;
+    films = new Map()
 
-    const auxiliary = async function(arg) {
-        const data = await (await fetch(arg)).json();
+    constructor(loadButton, listParent) {
+        this.loadButton = loadButton;
+        this.listParent = listParent;
 
-        data.results.map((item) => {
-            resultArray.push(item);
-        });
-
-        if (data.next) {
-            await auxiliary(data.next);
-        }
-    };
-
-    await auxiliary(url);
-
-    return resultArray;
-};
-
-const requests = urls.map((url) => unPage(url));
-
-(async () => {
-    const data = await Promise.all(requests);
-    const [ships, films] = data;
-
-    function createList(array) {
-        const $list = document.createElement('ul');
-        array.forEach(el => {
-            const $li = document.createElement('li');
-
-            $li.textContent = el.name || el.title || el;
-            $list.append($li);
-        });
-        return $list;
+        this.initLoadEvent();
     }
 
-    const extendedShips = ships.map(el => {
-        const titles = [];
-        el.films.forEach(element => {
-            titles.push(...films.filter((item) => item.url === element));
-            el.filmsNames = titles;
+    getData = async function(url) {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        return data;
+    }
+
+    initLoadEvent() {
+        this.loadButton.addEventListener('click', async () => {
+            const data = await this.getData(this.next);
+
+            const { results: newStarships, next } = data;
+            this.starships = [...this.starships, ...newStarships];
+            this.next = next;
+
+            if(!next) {
+                this.loadButton.setAttribute('disabled', 'disabled');
+            }
+
+            this.renderListItems(this.starships, this.listParent);
+            this.initItemEvent();
+        });
+    }
+
+    initItemEvent() {
+        this.listParent.addEventListener('click', async (e) => {
+            const target = e.target.closest('.list__item');
+
+            if (target) {
+                if (!target.children.length) {
+                    const shipName = target.innerText;
+
+                    const { films: filmsLinks } = this.starships.find(x => x.name === shipName);
+
+                    const films = await this.getFilms(filmsLinks);
+                    this.renderInnerList(films, target);
+                } else {
+                    Array.from(target.children).forEach(item => item.remove());
+                }
+            }
+        });
+    }
+
+    async getFilms(links) {
+        const diff = [...new Set(links.filter(link => !this.films.has(link)))];
+        const films = await Promise.all(diff.map(this.getData));
+        this.setFilmsCache(links, films);
+
+        const cachedFilmsLinks = links.filter(x => !diff.includes(x));
+        const cachedFilms = cachedFilmsLinks.map(link => this.films.get(link));
+
+        return [...films, ...cachedFilms];
+    }
+
+    setFilmsCache(links, filmsData) {
+        links.forEach(async (link) => {
+            if (!this.films.has(link)) {
+                this.films.set(link, filmsData.find(x => x.url === link));
+            }
+        });
+    }
+
+    renderListItems = function(data, parent) {
+        const fragment = document.createDocumentFragment();
+
+        data.forEach(ship => {
+            const li = document.createElement('li');
+            li.classList.add('list__item');
+            li.textContent = ship.name;
+            fragment.appendChild(li);
         });
 
-        return el;
-    });
+        parent.innerHTML = '';
+        parent.prepend(fragment);
+    }
 
-    const $shipsList = createList(extendedShips);
+    renderInnerList = function(data, parent) {
+        const ul = document.createElement('ul');
 
-    $shipsList.addEventListener('click', (e) => {
-        const target = e.target.closest('li');
+        data.forEach(film => {
+            const li = document.createElement('li');
+            li.textContent = film.title;
+            ul.append(li);
+        });
 
-        if (!target) return;
+        parent.append(ul);
+    }
+}
 
-        if (!target.children.length) {
-            let $filmsList = 0;
-
-            extendedShips.map((item) => {
-                if (target.textContent === item.name) {
-                    $filmsList = createList(item.filmsNames);
-                }
-            });
-
-            target.append($filmsList);
-        } else {
-            Array.from(target.children).map((item) => {
-                item.hidden = !item.hidden;
-            });
-        }
-    });
-
-    document.body.append($shipsList);
-})();
+// eslint-disable-next-line no-unused-vars
+const starWars = new StarWars(
+    document.querySelector('.load-ships'),
+    document.querySelector('.starships-list')
+);
